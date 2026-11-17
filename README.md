@@ -78,36 +78,7 @@ Was man über Vercel wissen muss:
 - **Die Rangliste lebt im Speicher der Instanz.** Startet Vercel die Funktion neu, beginnt sie von vorn.
   Für eine dauerhafte Rangliste braucht es eine Datenbank.
 
-## Auf GitHub Pages veröffentlichen (nur Solo)
-
-GitHub Pages liefert nur Dateien aus und kann keinen Spielserver betreiben. Das Spiel ist
-darauf vorbereitet: Auf GitHub Pages startet es im Solo-Modus gegen einen Bot.
-
-1. Auf GitHub ein neues, leeres Repository anlegen.
-2. Das Projekt hochladen (das lokale Repository mit dem ersten Commit gibt es schon):
-
-   ```bash
-   git remote add origin https://github.com/DEIN-NAME/DEIN-REPO.git
-   git push -u origin main
-   ```
-
-3. Im Repository unter **Settings > Pages** bei **Source** den Eintrag **GitHub Actions** wählen.
-4. Fertig. Bei jedem Push auf `main` läuft der Workflow in `.github/workflows/pages.yml`:
-   Er installiert die Abhängigkeiten, lässt die Tests laufen und veröffentlicht den Ordner `public/`.
-
-Das Spiel ist danach unter `https://DEIN-NAME.github.io/DEIN-REPO/` erreichbar.
-
-### Mehrspieler trotz GitHub Pages
-
-Für echten Mehrspieler muss der Server irgendwo laufen: auf Vercel (siehe oben), auf einem eigenen
-Rechner oder bei einem Hosting-Dienst für Node-Apps. Dann in `public/config.js` die Adresse eintragen:
-
-```js
-export const SERVER = 'https://mein-projekt.vercel.app';
-```
-
-Die Seite auf GitHub Pages verbindet sich dann mit diesem Server und zeigt seine Rangliste.
-Antwortet der Server nicht, fällt das Spiel von selbst in den Solo-Modus zurück.
+Antwortet der Server einmal nicht, fällt das Spiel von selbst in den Solo-Modus gegen einen Bot zurück.
 
 ## Wie es gebaut ist
 

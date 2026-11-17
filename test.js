@@ -154,7 +154,7 @@ const out = await new Promise((resolve, reject) => execFile(process.execPath, ['
   { env: { ...process.env, VERCEL: '1', LEADERBOARD_FILE: `${boardFile}.vercel` } }, (err, stdout) => (err ? reject(err) : resolve(stdout.trim()))));
 assert.equal(out, '200 week,top', 'the function serves the leaderboard');
 
-// --- solo mode: the same rules without any network (this is what runs on GitHub Pages) ---
+// --- solo mode: the same rules without any network (the fallback when no server answers) ---
 const map = S.MAPS[0];
 const inbox = [];
 const solo = createGame({ send: (conn, m) => conn.push(m) });

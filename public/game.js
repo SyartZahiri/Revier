@@ -1,5 +1,5 @@
 // Browser client: rendering, menu, input, own movement, shooting, effects, HUD, networking.
-// All paths are relative, so the folder works from any address (localhost, a server, GitHub Pages).
+// All paths are relative, so the folder works from any address (localhost, Vercel, a subfolder).
 import * as THREE from './vendor/three.module.js';
 import { HDRLoader } from './vendor/addons/loaders/HDRLoader.js';
 import { GLTFLoader } from './vendor/addons/loaders/GLTFLoader.js';
@@ -735,10 +735,8 @@ function showBoard(b, title) {
   $('board').replaceChildren(...(b.top.length ? [tableRow(['#', 'Name', 'Kills'], 'th')] : []),
     ...b.top.map((r, i) => tableRow([i + 1, r.name, r.k], 'td', r.name === myName)));
 }
-// GitHub Pages only delivers files. Without a server address in config.js there is nothing to ask there.
-const noServer = !SERVER && location.hostname.endsWith('github.io');
 async function loadBoard() {
-  if (!solo && !forceSolo && !noServer) {
+  if (!solo && !forceSolo) {
     try {
       const res = await fetch(`${BASE}/api/ws`, { signal: AbortSignal.timeout(4000) });   // a plain GET there returns the ranking
       if (!res.ok) throw new Error(res.status);
