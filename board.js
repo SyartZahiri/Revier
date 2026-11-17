@@ -10,6 +10,8 @@ import { weekKey } from './public/sim.js';
 
 const KEEP = 14 * 24 * 3600;      // seconds an old week stays in Redis before it deletes itself
 const MAX_NAMES = 5000;           // the list never grows beyond this many names
+const SAVE_EVERY = 2000;          // ms: kills are collected and written together, however many there were
+const READ_EVERY = 5000;          // ms: the list is read from Redis at most this often, also after an error
 
 export function createBoard({ file, redisUrl, redisToken, log = console.error }) {
   const useRedis = !!(redisUrl && redisToken);
@@ -40,42 +42,57 @@ export function createBoard({ file, redisUrl, redisToken, log = console.error })
     for (const [name, k] of Object.entries(saved.kills)) if (Number.isInteger(k) && k > 0) mem.kills.set(name, k);
   }).catch(() => { /* no file yet, or unreadable: start an empty week */ });
 
-  let saveTimer = null;
+  // Kills wait here until the next save. One save runs at a time, so a burst of kills never becomes a burst of requests.
+  const pending = new Map();
+  let saveTimer = null, saving = false;
+  async function save() {
+    saveTimer = null;
+    if (saving) { saveTimer = setTimeout(save, SAVE_EVERY); return; }
+    saving = true;
+    const batch = [...pending];
+    pending.clear();
+    try {
+      if (useRedis) {
+        await redis([...batch.map(([name, n]) => ['ZINCRBY', key(), n, name]),
+          ['EXPIRE', key(), KEEP], ['ZREMRANGEBYRANK', key(), 0, -MAX_NAMES - 1]]);     // keep two weeks, and only the top 5000
+      } else {
+        await mkdir(path.dirname(file), { recursive: true });
+        await writeFile(file, JSON.stringify({ week: mem.week, kills: Object.fromEntries(mem.kills) }));
+      }
+    } catch (e) {
+      log('Rangliste nicht gespeichert:', e.message);
+      // Not written: put the kills back for the next try (the file version writes everything anyway).
+      if (useRedis) for (const [name, n] of batch) if (pending.has(name) || pending.size < MAX_NAMES) pending.set(name, (pending.get(name) ?? 0) + n);
+    }
+    saving = false;
+    if (pending.size) saveTimer ??= setTimeout(save, SAVE_EVERY);
+  }
+
   function count(name) {
     const m = thisWeek();
     if (m.kills.has(name) || m.kills.size < MAX_NAMES) m.kills.set(name, (m.kills.get(name) ?? 0) + 1);
-    if (useRedis) {
-      // One kill, one small request: add to the week's list, keep it for two weeks, drop everything below the top 5000.
-      redis([['ZINCRBY', key(), 1, name], ['EXPIRE', key(), KEEP], ['ZREMRANGEBYRANK', key(), 0, -MAX_NAMES - 1]])
-        .catch((e) => log('Rangliste nicht gespeichert:', e.message));
-      return;
-    }
-    saveTimer ??= setTimeout(async () => {
-      saveTimer = null;
-      try {
-        await mkdir(path.dirname(file), { recursive: true });
-        await writeFile(file, JSON.stringify({ week: m.week, kills: Object.fromEntries(m.kills) }));
-      } catch (e) { log('Rangliste nicht gespeichert:', e.message); }
-    }, 2000);
+    if (pending.has(name) || pending.size < MAX_NAMES) pending.set(name, (pending.get(name) ?? 0) + 1);
+    saveTimer ??= setTimeout(save, SAVE_EVERY);
   }
 
-  let cache = null, cachedAt = 0;
+  let cache = null, cachedAt = 0, reading = null;
   async function top() {
     const m = thisWeek();
     const own = () => [...m.kills].sort((x, y) => y[1] - x[1]).slice(0, 10).map(([name, k]) => ({ name, k }));
     if (!useRedis) return { week: m.week, store: 'file', top: own() };
-    if (cache?.week === m.week && Date.now() - cachedAt < 5000) return cache;     // the menu asks often
-    try {
-      const [list] = await redis([['ZREVRANGE', key(), 0, 9, 'WITHSCORES']]);
+    if (cache?.week === m.week && Date.now() - cachedAt < READ_EVERY) return cache;       // the menu asks often
+    // Everybody who asks while a read is under way shares that one read. Its answer is kept for a moment,
+    // good or bad, so a Redis that is down is not asked again and again.
+    reading ??= redis([['ZREVRANGE', key(), 0, 9, 'WITHSCORES']]).then(([list]) => {
       // Redis answers name, score, name, score ... (some setups answer in pairs): take both.
       const flat = (list ?? []).flat(), rows = [];
       for (let i = 0; i + 1 < flat.length; i += 2) rows.push({ name: String(flat[i]), k: Math.round(Number(flat[i + 1])) || 0 });
-      cache = { week: m.week, store: 'redis', top: rows }; cachedAt = Date.now();
-      return cache;
-    } catch (e) {
+      return { week: m.week, store: 'redis', top: rows };
+    }).catch((e) => {
       log('Rangliste nicht lesbar:', e.message);
-      return { week: m.week, store: 'memory', top: own() };                      // what this instance has seen itself
-    }
+      return { week: m.week, store: 'memory', top: own() };                              // what this instance has seen itself
+    }).then((result) => { cache = result; cachedAt = Date.now(); reading = null; return result; });
+    return reading;
   }
 
   return { count, top, ready };

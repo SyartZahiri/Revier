@@ -256,9 +256,11 @@ assert.ok(wj.vel[1] < fallSpeed, 'no second jump off the same wall');
 // --- lasting leaderboard (Vercel): kills go to Redis over its REST API, a second server instance reads the same list ---
 const { createBoard } = await import('./board.js');
 const sets = new Map();                                        // a stand-in for Upstash Redis: key -> (name -> score)
+let requests = 0;
 const fake = http.createServer(async (req, res) => {
   let body = '';
   for await (const chunk of req) body += chunk;
+  requests++;
   if (req.url !== '/pipeline' || req.headers.authorization !== 'Bearer geheim') return res.writeHead(401).end('{}');
   const out = JSON.parse(body).map(([cmd, key, ...args]) => {
     const set = sets.get(key) ?? sets.set(key, new Map()).get(key);
@@ -272,13 +274,17 @@ await new Promise((r) => fake.listen(0, r));
 const redisUrl = `http://localhost:${fake.address().port}`, quiet = () => {};
 const one = createBoard({ redisUrl, redisToken: 'geheim', log: quiet });
 for (const n of ['Ada', 'Ada', 'Bo', 'Ada']) one.count(n);
-await wait(200);
+await wait(2300);
+assert.equal(requests, 1, 'four kills, one request: they are written together');
 const two = createBoard({ redisUrl, redisToken: 'geheim', log: quiet });          // a fresh instance with empty memory
 assert.deepEqual(await two.top(), { week: lb.week, store: 'redis', top: [{ name: 'Ada', k: 3 }, { name: 'Bo', k: 1 }] }, 'the list outlives the instance');
 assert.ok([...sets.keys()].every((k) => k === `revier:kills:${lb.week}`), 'one list per week, so a new week starts empty');
 const locked = createBoard({ redisUrl, redisToken: 'falsch', log: quiet });
 locked.count('Cy');
 assert.deepEqual(await locked.top(), { week: lb.week, store: 'memory', top: [{ name: 'Cy', k: 1 }] }, 'Redis says no: show what this instance knows');
+const asked = requests;
+await Promise.all([locked.top(), locked.top(), locked.top()]);
+assert.equal(requests, asked, 'a failed read is remembered for a moment too, not repeated on every request');
 fake.close();
 
 // --- the leaderboard is written to disk a moment after a kill ---
