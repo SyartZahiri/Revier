@@ -12,7 +12,7 @@ import { createGame, cleanChat } from './public/sim.js';
 const boardFile = path.join(os.tmpdir(), `leaderboard-test-${process.pid}.json`);
 process.env.PORT = '0';
 process.env.LEADERBOARD_FILE = boardFile;
-const { ready, rooms } = await import('./server.js');
+const { ready, rooms } = await import('./game-server.js');
 const port = await ready;
 
 function connect(name, skin, token) {

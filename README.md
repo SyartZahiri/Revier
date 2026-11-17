@@ -90,8 +90,8 @@ wie Räume, Bots, Schaden und Runden funktionieren.
 |---|---|
 | `public/shared.js` | Die Karte, Waffen, Bewegungsphysik, Strahl-Tests. Von Browser und Server benutzt |
 | `public/sim.js` | Spielregeln: Räume, Charaktere, Bots mit Wegfindung, Schaden, Westen, Runden. Ohne Netzwerk und ohne Dateizugriff |
-| `server.js` | Verbindet Spieler per WebSocket mit `sim.js`, führt die Rangliste, liefert lokal auch die Dateien aus |
-| `api/ws.js`, `vercel.json` | Machen aus `server.js` eine Funktion auf Vercel |
+| `game-server.js` | Verbindet Spieler per WebSocket mit `sim.js`, führt die Rangliste, liefert lokal auch die Dateien aus |
+| `api/ws.js`, `vercel.json` | Machen aus `game-server.js` eine Funktion auf Vercel |
 | `public/game.js` | Alles im Browser: 3D mit three.js, Steuerung, Schiessen, Effekte, Anzeige, Menü |
 | `public/config.js` | Adresse des Mehrspieler-Servers |
 | `public/index.html` | Startmenü und Anzeige |

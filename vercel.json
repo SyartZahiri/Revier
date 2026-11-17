@@ -1,8 +1,12 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "node tools/vendor.mjs",
+  "framework": null,
+  "buildCommand": "",
   "outputDirectory": "public",
   "functions": {
-    "api/ws.js": { "maxDuration": 300 }
+    "api/ws.js": {
+      "maxDuration": 300,
+      "includeFiles": "public/{sim,shared}.js"
+    }
   }
 }

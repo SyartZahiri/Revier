@@ -1,6 +1,4 @@
 node_modules/
-# copied from node_modules by "npm install" (tools/vendor.mjs)
-public/vendor/
 # the weekly leaderboard of this machine
 data/
 # local tool settings

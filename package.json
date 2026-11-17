@@ -1,12 +1,12 @@
 {
   "name": "revier",
   "version": "0.3.0",
-  "description": "Arena-Shooter für den Browser: Mehrspieler mit Node-Server, Solo gegen Bots auf jeder statischen Seite.",
+  "description": "Alle-gegen-alle-Shooter für den Browser: Mehrspieler über einen Node-Server (lokal oder als Vercel-Funktion), sonst solo gegen einen Bot.",
   "private": true,
   "type": "module",
   "scripts": {
     "postinstall": "node tools/vendor.mjs",
-    "start": "node server.js",
+    "start": "node game-server.js",
     "test": "node test.js"
   },
   "dependencies": {

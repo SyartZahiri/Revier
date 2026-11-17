@@ -1,5 +1,6 @@
-// Copies the few three.js files the game needs from node_modules into public/vendor,
-// so public/ is a complete website on its own (needed for GitHub Pages). Runs after "npm install".
+// Copies the few three.js files the game needs from node_modules into public/vendor, so public/ is a
+// complete website on its own. The copies are checked in; this runs after "npm install" to keep them
+// in step with the installed three.js version.
 import { cp, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
