@@ -1,6 +1,9 @@
-// Multiplayer server: serves the files in public/, connects players over WebSockets to the
-// game rules in public/sim.js, and keeps the weekly leaderboard on disk.
+// Multiplayer server: connects players over WebSockets to the game rules in public/sim.js and keeps
+// the weekly leaderboard. Runs two ways:
+//   npm start   a normal Node server that also delivers the files in public/
+//   Vercel      imported by api/ws.js as a function; Vercel itself delivers public/
 import http from 'node:http';
+import os from 'node:os';
 import path from 'node:path';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -9,15 +12,17 @@ import { createGame, weekKey, TICK_MS } from './public/sim.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(ROOT, 'public');
-const BOARD_FILE = process.env.LEADERBOARD_FILE ?? path.join(ROOT, 'data', 'leaderboard.json');
+const ON_VERCEL = !!process.env.VERCEL;
+// On Vercel only the temp folder can be written, and it lives as long as the function instance does.
+const BOARD_FILE = process.env.LEADERBOARD_FILE ?? path.join(ON_VERCEL ? os.tmpdir() : path.join(ROOT, 'data'), 'leaderboard.json');
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css',
   '.jpg': 'image/jpeg', '.glb': 'model/gltf-binary', '.txt': 'text/plain; charset=utf-8',
 };
 
 // ---------- weekly leaderboard ----------
-// ponytail: one JSON file, names are not accounts (anyone can type any name). Move to a database
-// with logins once the game is public and the ranking starts to matter.
+// ponytail: one JSON file, names are not accounts (anyone can type any name). On Vercel the file is
+// lost whenever the function instance is replaced. Move to a database (with logins) once the ranking matters.
 const board = { week: weekKey(), kills: new Map() };   // a Map, so a name like "__proto__" is just a name
 try {
   const saved = JSON.parse(await readFile(BOARD_FILE, 'utf8'));
@@ -50,12 +55,14 @@ function topList() {
   return { week: b.week, top };
 }
 
-// ---------- files ----------
-const server = http.createServer(async (req, res) => {
+// ---------- plain requests ----------
+// /api/ws is one address for both: a WebSocket connects to the game, a normal GET returns the leaderboard.
+// (One address, so on Vercel both end up in the same function and see the same memory.)
+export const server = http.createServer(async (req, res) => {
   try {
     let p = decodeURIComponent(new URL(req.url, 'http://x').pathname);
-    if (p === '/api/leaderboard') {
-      // Readable from any site, so a copy of the game on GitHub Pages can show this server's ranking.
+    if (p === '/api/ws') {
+      // Readable from any site, so a copy of the game hosted elsewhere can show this server's ranking.
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*' });
       return res.end(JSON.stringify(topList()));
     }
@@ -87,14 +94,15 @@ wss.on('connection', (ws) => {
     let m;
     try { m = JSON.parse(raw); } catch { return; }
     if (p) return game.message(p, m);
-    if (m?.t === 'join') p = game.join(ws, m.name, m.skin);     // first message: name and wished character
+    if (m?.t === 'join') p = game.join(ws, m.name, m.skin, m.token);     // first message: name, wished character, and the token when coming back
   });
-  ws.on('close', () => { if (p) game.leave(p); });
+  ws.on('close', () => { if (p?.conn === ws) game.detach(p); });         // their place is kept for a moment
   ws.on('error', () => ws.close());
 });
 
 setInterval(game.tick, TICK_MS);
-export const ready = new Promise((resolve) => {
+// Vercel starts the server itself (see api/ws.js). Everywhere else it listens right away.
+export const ready = ON_VERCEL ? null : new Promise((resolve) => {
   server.listen(process.env.PORT ?? 3000, () => {
     const { port } = server.address();
     console.log(`Spiel läuft auf http://localhost:${port}`);

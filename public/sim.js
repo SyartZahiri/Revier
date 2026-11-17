@@ -90,9 +90,13 @@ function onTarget(shot, target, W, map) {
   return { dist, head: o[1] + d[1] * along > target.pos[1] + h - 0.9 };      // headshot only if the aim line is up there
 }
 
+// A secret per player: whoever shows it after a dropped connection gets their place (and kills) back.
+const newToken = () => [...crypto.getRandomValues(new Uint8Array(12))].map((b) => b.toString(16).padStart(2, '0')).join('');
+
 // send(conn, msg) delivers a message object to one player's connection.
 // onKill(name) is called when a human scores (for the leaderboard).
-export function createGame({ send, onKill = () => {} }) {
+// hold: how long (ms) a player's place is kept after their connection drops, so they can come back.
+export function createGame({ send, onKill = () => {}, hold = 10000 }) {
   const rooms = [], grids = S.MAPS.map(buildGrid);
   let nextId = 1;
   const humans = (room) => [...room.players.values()].filter((p) => !p.bot);
@@ -123,6 +127,7 @@ export function createGame({ send, onKill = () => {} }) {
       ...S.newBody(), id: nextId++, conn, bot, name, skin: freeSkin(room, skin),
       yaw: 0, pitch: 0, hp: 100, armor: 0, w: S.RIFLE, k: 0, d: 0, dead: false, respawnAt: 0, hurtAt: 0, safeUntil: Date.now() + PROTECT,
       lastShot: S.WEAPONS.map(() => 0), shot: null, chatAt: 0, reach: 3, movedAt: Date.now(),
+      token: bot ? null : newToken(), lostAt: 0,
       ai: { until: 0, s: 1, stuck: 0, dodge: 0, seenAt: 0, fireAt: 0, flow: null, flowAt: 0 },
     };
     p.pos = pickSpawn(room, p);
@@ -144,7 +149,16 @@ export function createGame({ send, onKill = () => {} }) {
     }
   }
 
-  function join(conn, rawName, skin) {
+  function join(conn, rawName, skin, token) {
+    // Coming back after a dropped connection: same player, same room, same score.
+    if (typeof token === 'string' && token.length === 24) {
+      for (const r of rooms) for (const q of r.players.values()) {
+        if (q.token !== token || !q.lostAt) continue;
+        q.conn = conn; q.lostAt = 0; q.reach = 3; q.movedAt = Date.now();
+        tell(q, { t: 'hello', id: q.id, room: r.id, map: r.map, p: q.pos, name: q.name, skin: q.skin, token: q.token, back: true });
+        return q;
+      }
+    }
     let room = rooms.find((r) => humans(r).length < S.MAX_PLAYERS);
     if (!room) {
       let id = 1;
@@ -155,10 +169,16 @@ export function createGame({ send, onKill = () => {} }) {
     }
     const p = addPlayer(room, conn, cleanName(rawName) ?? `${pick(ADJ)} ${pick(NOUN)}`, false, skin);
     p.room = room;
-    tell(p, { t: 'hello', id: p.id, room: room.id, map: room.map, p: p.pos, name: p.name, skin: p.skin });
+    tell(p, { t: 'hello', id: p.id, room: room.id, map: room.map, p: p.pos, name: p.name, skin: p.skin, token: p.token });
     broadcast(room, { t: 'info', text: `${p.name} ist da` }, p);
     syncBot(room);
     return p;
+  }
+
+  // The connection dropped. The player stays in the room for `hold` ms in case they come back (see join).
+  function detach(p) {
+    if (!p.room.players.has(p.id)) return;
+    p.conn = null; p.lostAt = Date.now();
   }
 
   function leave(p) {
@@ -202,6 +222,7 @@ export function createGame({ send, onKill = () => {} }) {
   function message(p, m) {
     const room = p.room, now = Date.now();
     if (!m || typeof m !== 'object' || !room.players.has(p.id)) return;
+    if (m.t === 'bye') return leave(p);                    // closing the tab: leave now, do not hold the place
     if (m.t === 'chat') {
       const text = cleanChat(m.text);
       if (!text || now - p.chatAt < 800) return;         // at most one line every 0.8 s
@@ -298,6 +319,8 @@ export function createGame({ send, onKill = () => {} }) {
     const now = Date.now(), r2 = (n) => Math.round(n * 100) / 100;
     for (const room of [...rooms]) {
       const vests = mapOf(room).pickups;
+      for (const p of [...room.players.values()]) if (p.lostAt && now - p.lostAt > hold) leave(p);   // gone for good
+      if (!rooms.includes(room)) continue;
       for (const p of [...room.players.values()]) {
         if (!p.dead && p.hp < 100 && now - p.hurtAt > 5000) p.hp = Math.min(100, p.hp + 1);   // heal after 5 s of peace
         if (p.dead && now >= p.respawnAt) {
@@ -325,5 +348,5 @@ export function createGame({ send, onKill = () => {} }) {
     }
   }
 
-  return { rooms, join, leave, message, tick };
+  return { rooms, join, leave, detach, message, tick };
 }

@@ -59,10 +59,29 @@ npm start
 Danach läuft das Spiel auf http://localhost:3000. Wer im selben Netz ist, kann über die
 Adresse deines Rechners mitspielen.
 
-## Auf GitHub Pages veröffentlichen
+## Auf Vercel veröffentlichen (mit Mehrspieler)
+
+Vercel liefert die Dateien aus und führt zusätzlich den Spielserver als Funktion aus
+(`api/ws.js`, eingestellt in `vercel.json`). Damit funktionieren dort Mehrspieler und Rangliste.
+
+1. Auf [vercel.com/new](https://vercel.com/new) das GitHub-Repository auswählen.
+2. Nichts umstellen und auf **Deploy** klicken.
+
+Bei jedem Push auf `main` veröffentlicht Vercel danach von selbst neu.
+
+Was man über Vercel wissen muss:
+
+- **Verbindungen dauern höchstens 5 Minuten** (im kostenlosen Tarif). Das Spiel verbindet sich dann
+  sofort neu und zeigt sein Kennzeichen vor. Der Spieler behält Platz, Position und Punkte.
+- **Kein fester Server.** Vercel garantiert nicht, dass zwei Spieler auf derselben Instanz landen.
+  Bei wenig Betrieb klappt es in der Regel. Landen zwei Freunde in getrennten Räumen, hilft neu laden.
+- **Die Rangliste lebt im Speicher der Instanz.** Startet Vercel die Funktion neu, beginnt sie von vorn.
+  Für eine dauerhafte Rangliste braucht es eine Datenbank.
+
+## Auf GitHub Pages veröffentlichen (nur Solo)
 
 GitHub Pages liefert nur Dateien aus und kann keinen Spielserver betreiben. Das Spiel ist
-darauf vorbereitet: Auf GitHub Pages startet es im Solo-Modus gegen Bots.
+darauf vorbereitet: Auf GitHub Pages startet es im Solo-Modus gegen einen Bot.
 
 1. Auf GitHub ein neues, leeres Repository anlegen.
 2. Das Projekt hochladen (das lokale Repository mit dem ersten Commit gibt es schon):
@@ -80,12 +99,11 @@ Das Spiel ist danach unter `https://DEIN-NAME.github.io/DEIN-REPO/` erreichbar.
 
 ### Mehrspieler trotz GitHub Pages
 
-Für echten Mehrspieler muss `server.js` irgendwo laufen, wo Node.js und WebSockets erlaubt sind
-(ein eigener Server oder ein Hosting-Dienst für Node-Apps). Dann in `public/config.js` die
-Adresse eintragen:
+Für echten Mehrspieler muss der Server irgendwo laufen: auf Vercel (siehe oben), auf einem eigenen
+Rechner oder bei einem Hosting-Dienst für Node-Apps. Dann in `public/config.js` die Adresse eintragen:
 
 ```js
-export const SERVER = 'https://mein-server.example';
+export const SERVER = 'https://mein-projekt.vercel.app';
 ```
 
 Die Seite auf GitHub Pages verbindet sich dann mit diesem Server und zeigt seine Rangliste.
@@ -101,7 +119,8 @@ wie Räume, Bots, Schaden und Runden funktionieren.
 |---|---|
 | `public/shared.js` | Die Karte, Waffen, Bewegungsphysik, Strahl-Tests. Von Browser und Server benutzt |
 | `public/sim.js` | Spielregeln: Räume, Charaktere, Bots mit Wegfindung, Schaden, Westen, Runden. Ohne Netzwerk und ohne Dateizugriff |
-| `server.js` | Liefert die Dateien aus, verbindet Spieler per WebSocket mit `sim.js`, speichert die Rangliste |
+| `server.js` | Verbindet Spieler per WebSocket mit `sim.js`, führt die Rangliste, liefert lokal auch die Dateien aus |
+| `api/ws.js`, `vercel.json` | Machen aus `server.js` eine Funktion auf Vercel |
 | `public/game.js` | Alles im Browser: 3D mit three.js, Steuerung, Schiessen, Effekte, Anzeige, Menü |
 | `public/config.js` | Adresse des Mehrspieler-Servers |
 | `public/index.html` | Startmenü und Anzeige |
@@ -135,7 +154,9 @@ Namen werden gesäubert, zehn Spieler bekommen zehn verschiedene Charaktere, der
 einem Spieler da, Räume fassen 10 Spieler. Treffer zählen nur nach einem Schuss vom eigenen Standort
 in Richtung des Ziels, nicht durch den Panzer hindurch, und das Messer nur aus der Nähe. Die Rangliste
 zählt und speichert, der Solo-Modus läuft ohne Netzwerk, Westen fangen Schaden ab, alle Spawn-Punkte
-und Westen liegen frei, Grabhügel und Treppen lassen sich hochlaufen.
+und Westen liegen frei, Grabhügel und Treppen lassen sich hochlaufen. Wer nach einer getrennten
+Verbindung sein Kennzeichen vorzeigt, bekommt Platz und Punkte zurück. Die Vercel-Funktion liefert
+denselben Server, ohne selbst zu starten.
 
 ## Grenzen
 

@@ -15,14 +15,14 @@ process.env.LEADERBOARD_FILE = boardFile;
 const { ready, rooms } = await import('./server.js');
 const port = await ready;
 
-function connect(name, skin) {
+function connect(name, skin, token) {
   return new Promise((resolve) => {
-    const ws = new WebSocket(`ws://localhost:${port}`);
+    const ws = new WebSocket(`ws://localhost:${port}/api/ws`);
     const c = { ws, id: 0, name: '', skin: -1, snap: null, chat: [] };
-    ws.on('open', () => ws.send(JSON.stringify({ t: 'join', name, skin })));
+    ws.on('open', () => ws.send(JSON.stringify({ t: 'join', name, skin, token })));
     ws.on('message', (raw) => {
       const m = JSON.parse(raw);
-      if (m.t === 'hello') { c.id = m.id; c.name = m.name; c.skin = m.skin; resolve(c); }
+      if (m.t === 'hello') { Object.assign(c, { id: m.id, name: m.name, skin: m.skin, token: m.token, back: !!m.back }); resolve(c); }
       if (m.t === 'snap') c.snap = m;
       if (m.t === 'chat') c.chat.push(m.text);
     });
@@ -30,8 +30,9 @@ function connect(name, skin) {
 }
 const wait = (ms = 150) => new Promise((r) => setTimeout(r, ms));
 const say = (c, m) => c.ws.send(JSON.stringify(m));
+const bye = (c) => { say(c, { t: 'bye' }); c.ws.close(); };      // leave properly, like closing the tab
 const me = (c, id = c.id) => c.snap.players.find((p) => p.id === id);
-const board = async () => (await fetch(`http://localhost:${port}/api/leaderboard`)).json();
+const board = async () => (await fetch(`http://localhost:${port}/api/ws`)).json();
 
 // --- names: cleaned up, never trusted ---
 const a = await connect('  <b>Syart</b> der   Erste!!  ', 3);
@@ -42,7 +43,7 @@ assert.equal(proto.name, '__proto__');
 assert.ok(Number.isInteger(proto.skin) && proto.skin !== 3, 'nonsense character: the server picks a free one');
 const anon = await connect(42);
 assert.ok(anon.name.length >= 2, 'no usable name: the server makes one up');
-proto.ws.close(); anon.ws.close();
+bye(proto); bye(anon);
 await wait();
 
 // --- alone: one bot ---
@@ -115,12 +116,43 @@ assert.equal(last.snap.room, 2);
 assert.equal(last.snap.players.filter((p) => p.bot).length, 1, 'alone in room 2: bot');
 
 // --- leaving: empty room disappears, bot comes back when one is left ---
-last.ws.close();
+bye(last);
 await wait();
 assert.equal(rooms.length, 1, 'empty room removed');
-for (const c of [b, ...more.slice(0, -1)]) c.ws.close();
+for (const c of [b, ...more.slice(0, -1)]) bye(c);
 await wait();
 assert.equal(a.snap.players.filter((p) => p.bot).length, 1, 'alone again: bot is back');
+
+// --- dropped connection (Vercel cuts every connection after a few minutes): the place is kept, the token brings you back ---
+a.ws.close();
+await wait();
+assert.equal(rooms.length, 1, 'the room waits for the player');
+const again = await connect('anderer Name', 5, a.token);
+await wait();
+assert.deepEqual([again.id, again.name, again.back, me(again).k], [a.id, a.name, true, 1], 'same player, same score');
+const stranger = await connect('Fremder', 5, 'f'.repeat(24));
+assert.notEqual(stranger.id, a.id, 'a made-up token gets a new player, not somebody else\'s place');
+bye(stranger);
+const brief = createGame({ send: () => {}, hold: 40 });
+brief.detach(brief.join({}, 'Kurz'));
+brief.tick();
+assert.equal(brief.rooms.length, 1, 'held for a moment');
+await wait(80);
+brief.tick();
+assert.equal(brief.rooms.length, 0, 'then given up');
+
+// --- the Vercel function: api/ws.js hands over the same server, not yet listening, and answers /api/ws ---
+const { execFile } = await import('node:child_process');
+const vercelCheck = `
+  const { default: server } = await import('./api/ws.js');
+  if (server.listening) throw new Error('must not listen by itself on Vercel');
+  await new Promise((r) => server.listen(0, r));
+  const res = await fetch('http://localhost:' + server.address().port + '/api/ws');
+  console.log(res.status, Object.keys(await res.json()).join(','));
+  process.exit(0);`;
+const out = await new Promise((resolve, reject) => execFile(process.execPath, ['--input-type=module', '-e', vercelCheck],
+  { env: { ...process.env, VERCEL: '1', LEADERBOARD_FILE: `${boardFile}.vercel` } }, (err, stdout) => (err ? reject(err) : resolve(stdout.trim()))));
+assert.equal(out, '200 week,top', 'the function serves the leaderboard');
 
 // --- solo mode: the same rules without any network (this is what runs on GitHub Pages) ---
 const map = S.MAPS[0];
@@ -224,6 +256,6 @@ assert.ok(wj.vel[1] < fallSpeed, 'no second jump off the same wall');
 await wait(2300);
 const saved = JSON.parse(await readFile(boardFile, 'utf8'));
 assert.equal(saved.kills[a.name], 1, 'kill saved to the leaderboard file');
-await rm(boardFile, { force: true });
+await rm(boardFile, { force: true }); await rm(`${boardFile}.vercel`, { force: true });
 console.log('Alle Tests bestanden');
 process.exit(0);

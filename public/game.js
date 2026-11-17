@@ -740,7 +740,7 @@ const noServer = !SERVER && location.hostname.endsWith('github.io');
 async function loadBoard() {
   if (!solo && !forceSolo && !noServer) {
     try {
-      const res = await fetch(`${BASE}/api/leaderboard`, { signal: AbortSignal.timeout(2500) });
+      const res = await fetch(`${BASE}/api/ws`, { signal: AbortSignal.timeout(4000) });   // a plain GET there returns the ranking
       if (!res.ok) throw new Error(res.status);
       showBoard(await res.json(), 'Rangliste der Woche');
       serverOk = true;
@@ -834,14 +834,19 @@ chatInput.addEventListener('keyup', (e) => e.stopPropagation());
 // ---------- network: a real server, or the same rules running in this browser ----------
 let link = null;                             // { send(msg) } once a game is running
 const send = (m) => link?.send(m);
+// Some hosts (Vercel) cut every connection after a few minutes. Then we simply connect again and show
+// our token, and the game gives us our place and score back. Only after several failed tries do we give up.
+const RETRY = [300, 800, 1500, 2500, 4000];
+let token = null, tries = 0;
 function connect(name) {
-  status('Verbinde...');
-  const ws = new WebSocket(BASE.replace(/^http/, 'ws'));
-  link = { send: (m) => { if (ws.readyState === 1) ws.send(JSON.stringify(m)); } };
-  ws.onopen = () => send({ t: 'join', name, skin: mySkin });
-  ws.onmessage = (e) => onMessage(JSON.parse(e.data));
+  if (!joined) status('Verbinde...');
+  const ws = new WebSocket(`${BASE.replace(/^http/, 'ws')}/api/ws`);
+  link = { send: (m) => { if (ws.readyState === 1) ws.send(JSON.stringify(m)); }, drop: () => ws.close() };
+  ws.onopen = () => send({ t: 'join', name, skin: mySkin, token });
+  ws.onmessage = (e) => { tries = 0; onMessage(JSON.parse(e.data)); };
   ws.onclose = () => {
     if (!joined) { link = null; return startSolo(name); }        // server gone before we got in: play solo instead
+    if (tries < RETRY.length) return setTimeout(() => connect(name), RETRY[tries++]);
     joined = false; link = null; document.exitPointerLock();
     status('Verbindung weg. Lade neu...', true);
     setTimeout(() => location.reload(), 2500);
@@ -857,11 +862,15 @@ function startSolo(name) {
   link = { send: (m) => game.message(player, m) };
   setInterval(game.tick, TICK_MS);
 }
+addEventListener('pagehide', () => send({ t: 'bye' }));     // leaving for real: free my place at once
 const nameOf = (id) => (id === myId ? myName : names.get(id) ?? 'Jemand');
 
 function onMessage(m) {
   if (m.t === 'hello') {
-    myId = m.id; myName = m.name; me.pos = [...m.p]; joined = true;
+    token = m.token;
+    if (m.back) return;                                    // same place as before the connection dropped: just carry on
+    if (joined) { for (const r of remotes.values()) scene.remove(r.g); remotes.clear(); feed(['Neu verbunden. Neuer Raum.']); }
+    myId = m.id; myName = m.name; me.pos = [...m.p]; me.vel = [0, 0, 0]; joined = true; dead = false; $('dead').style.display = 'none';
     buildMap(m.map);
     nameInput.value = m.name; nameInput.disabled = true; $('play').textContent = 'Weiter';
     $('prevSkin').disabled = $('nextSkin').disabled = true;       // the character is fixed for this visit
@@ -1156,5 +1165,6 @@ window.game = {
     if (r.g.mixer) { r.g.play(pose === 'dead' ? 'Death' : pose === 'run' ? 'Run' : 'Idle'); r.g.mixer.update(pose === 'dead' ? 1.2 : 0.3); }
   },
   skin(i) { showSkin(i); },
+  drop() { link?.drop?.(); },               // cut the connection, as Vercel does every few minutes
   steps(n) { for (let i = 0; i < n; i++) step(last + 16); },     // run n frames right now (a hidden tab gets almost none)
 };
