@@ -121,6 +121,7 @@ Ein paar Entscheide, die man beim Lesen wissen sollte:
 - **Der Browser meldet, der Server prüft.** Der Browser des Spielers rechnet seine Bewegung und meldet Schüsse und Treffer.
   Die Spielregeln glauben einen Treffer nur, wenn er möglich war: Der Schuss kam von dort, wo der Spieler steht, er ging
   in Richtung des Ziels, es lag nichts Festes dazwischen, die Feuerrate stimmt, und ein Messer reicht nur aus der Nähe.
+  Auch der gemeldete Standort wird geprüft: nicht schneller als 18 m/s über den Boden und nicht in einer Wand.
   Die Bewegung selbst wird nicht nachgerechnet. Siehe Grenzen.
 
 ## Tests
@@ -138,8 +139,8 @@ und Westen liegen frei, Grabhügel und Treppen lassen sich hochlaufen.
 
 ## Grenzen
 
-- **Schummeln ist erschwert, nicht ausgeschlossen.** Treffer werden auf Plausibilität geprüft, die Bewegung wird dem
-  Browser geglaubt. Wer sein Spiel umbaut, kann sich also schneller bewegen als erlaubt oder perfekt zielen.
+- **Schummeln ist erschwert, nicht ausgeschlossen.** Treffer, Tempo und Wände werden geprüft, die Bewegung wird aber
+  nicht nachgerechnet. Wer sein Spiel umbaut, kann also fliegen oder perfekt zielen.
 - **Namen sind keine Konten.** Jeder kann jeden Namen eintippen, also auch in der Rangliste.
 - **Der Chat ist ungefiltert.** Er ist auf 80 Zeichen begrenzt und wird nur als Text angezeigt, mehr nicht.
 - **Ein Körper für alle.** Die zehn Charaktere unterscheiden sich in Farben und Ausrüstung, nicht in der Figur.

@@ -871,6 +871,7 @@ function onMessage(m) {
     status(`Du spielst als ${m.name}, Charakter ${SKIN[m.skin].name}${wished !== SKIN[m.skin].name ? ` (${wished} war schon vergeben)` : ''}${solo ? ', solo gegen einen Bot' : ''}.`);
   } else if (m.t === 'snap') onSnap(m);
   else if (m.t === 'shot') onRemoteShot(m);
+  else if (m.t === 'pos') { me.pos = [...m.p]; me.vel = [0, 0, 0]; }      // the game did not accept where I said I was
   else if (m.t === 'spawn') {
     me.pos = [...m.p]; me.vel = [0, 0, 0]; dead = false; $('dead').style.display = 'none';
     S.WEAPONS.forEach((w, i) => { ammo[i] = w.mag; });

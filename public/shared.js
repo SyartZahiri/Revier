@@ -160,6 +160,13 @@ export function rayBoxes(o, d, max, map) {
   return t;
 }
 
+// Is a body at pos stuck inside something solid? `slack` forgives rounding at the surfaces.
+export function blocked(map, pos, crouch, slack = 0.06) {
+  const h = crouch ? CROUCH_HEIGHT : HEIGHT, r = R - slack;
+  return map.boxes.some((b) => pos[0] + r > b.min[0] && pos[0] - r < b.max[0] && pos[1] + h - slack > b.min[1] &&
+    pos[1] + slack < b.max[1] && pos[2] + r > b.min[2] && pos[2] - r < b.max[2]);
+}
+
 export const playerBox = (pos, crouch) => ({
   min: [pos[0] - R, pos[1], pos[2] - R],
   max: [pos[0] + R, pos[1] + (crouch ? CROUCH_HEIGHT : HEIGHT), pos[2] + R],

@@ -10,6 +10,8 @@ const RESPAWN = 2500, BOT_DMG = 11, PICKUP_RESPAWN = 20000;
 const PROTECT = 1500;   // ms of invulnerability after (re)spawning; ends early when you shoot
 const REACH = 3;        // a shot may start this far from where the server last saw the shooter (m): one tick of sprinting plus the eye height
 const LAG = 1.2;        // how far a target may be from where the shooter saw it (m)
+const TOP_SPEED = 18;   // m/s over the ground: nobody is faster, not even sliding into a bunny hop
+const MOVE_CAP = 20;    // metres a player may have saved up after a pause (lag, hidden tab)
 const BOT_NAME = 'Bot Günther';
 const ADJ = ['Stiller', 'Schneller', 'Kalter', 'Grauer', 'Wacher', 'Rauer', 'Leiser', 'Harter'];
 const NOUN = ['Falke', 'Wolf', 'Luchs', 'Rabe', 'Dachs', 'Marder', 'Bussard', 'Keiler'];
@@ -120,7 +122,7 @@ export function createGame({ send, onKill = () => {} }) {
     const p = {
       ...S.newBody(), id: nextId++, conn, bot, name, skin: freeSkin(room, skin),
       yaw: 0, pitch: 0, hp: 100, armor: 0, w: S.RIFLE, k: 0, d: 0, dead: false, respawnAt: 0, hurtAt: 0, safeUntil: Date.now() + PROTECT,
-      lastShot: S.WEAPONS.map(() => 0), shot: null, chatAt: 0,
+      lastShot: S.WEAPONS.map(() => 0), shot: null, chatAt: 0, reach: 3, movedAt: Date.now(),
       ai: { until: 0, s: 1, stuck: 0, dodge: 0, seenAt: 0, fireAt: 0, flow: null, flowAt: 0 },
     };
     p.pos = pickSpawn(room, p);
@@ -190,7 +192,7 @@ export function createGame({ send, onKill = () => {} }) {
     room.pickups = mapOf(room).pickups.map(() => 0);
     broadcast(room, { t: 'win', name: winner.name, map: room.map });
     for (const q of room.players.values()) {
-      Object.assign(q, { k: 0, d: 0, hp: 100, armor: 0, dead: false, shot: null, vel: [0, 0, 0], safeUntil: Date.now() + PROTECT });
+      Object.assign(q, { k: 0, d: 0, hp: 100, armor: 0, dead: false, shot: null, vel: [0, 0, 0], reach: 3, movedAt: Date.now(), safeUntil: Date.now() + PROTECT });
       q.ai.flow = null;
       q.pos = pickSpawn(room, q);
       tell(q, { t: 'spawn', p: q.pos });
@@ -210,7 +212,13 @@ export function createGame({ send, onKill = () => {} }) {
     const map = mapOf(room), half = map.half;
     if (m.t === 's') {
       if (!isNum(m.x, m.y, m.z, m.yaw, m.pitch)) return;
-      p.pos = [clamp(m.x, -half, half), clamp(m.y, 0, 60), clamp(m.z, -half, half)];
+      // The position is the player's own claim. It is taken only if they could have got there:
+      // no faster than TOP_SPEED since the last accepted step, and not inside a wall.
+      const next = [clamp(m.x, -half, half), clamp(m.y, 0, 60), clamp(m.z, -half, half)];
+      p.reach = Math.min(MOVE_CAP, p.reach + TOP_SPEED * (now - p.movedAt) / 1000); p.movedAt = now;
+      const dist = Math.hypot(next[0] - p.pos[0], next[2] - p.pos[2]);
+      if (dist > p.reach || S.blocked(map, next, !!m.c)) return tell(p, { t: 'pos', p: p.pos });   // put them back
+      p.reach -= dist; p.pos = next;
       p.yaw = m.yaw; p.pitch = clamp(m.pitch, -1.6, 1.6); p.crouch = !!m.c;
       if (Number.isInteger(m.w) && S.WEAPONS[m.w]) p.w = m.w;
     } else if (m.t === 'shot') {                           // "I pulled the trigger": from where, in which direction
@@ -294,6 +302,7 @@ export function createGame({ send, onKill = () => {} }) {
         if (!p.dead && p.hp < 100 && now - p.hurtAt > 5000) p.hp = Math.min(100, p.hp + 1);   // heal after 5 s of peace
         if (p.dead && now >= p.respawnAt) {
           p.dead = false; p.hp = 100; p.pos = pickSpawn(room, p); p.vel = [0, 0, 0]; p.safeUntil = now + PROTECT;
+          p.reach = 3; p.movedAt = now;
           tell(p, { t: 'spawn', p: p.pos });
         }
         if (p.bot && !p.dead) updateBot(room, p, TICK_MS / 1000, now);

@@ -66,7 +66,7 @@ assert.equal(cleanChat('   '), null);
 // --- hits: believed only if a shot was fired from where the shooter stands, towards the target ---
 const pb = me(a, b.id), RIFLE = S.RIFLE;
 const eye = [pb.x + 2, 1.6, pb.z], atB = [-1, 0, 0];           // a stands 2 m beside b and aims at b's head
-say(a, { t: 's', x: pb.x + 2, y: 0, z: pb.z, yaw: 0, pitch: 0, c: false, w: RIFLE });
+rooms[0].players.get(a.id).pos = [pb.x + 2, 0, pb.z];          // put a there on the server (walking over would take a while)
 say(a, { t: 'hit', id: b.id });
 await wait();
 assert.equal(me(a, b.id).hp, 100, 'hit without shot is ignored');
@@ -134,14 +134,13 @@ assert.equal(snap.players.filter((p) => p.bot).length, 1);
 assert.notEqual(snap.players[0].skin, snap.players[1].skin, 'the bot wears another character');
 
 // --- armour: walking over a vest puts it on, and it takes the next hit ---
-const [vx, vy, vz] = map.pickups[0];
-solo.message(hero, { t: 's', x: vx, y: vy, z: vz, yaw: 0, pitch: 0 });
+hero.pos = [...map.pickups[0]];
 solo.tick();
 assert.equal(hero.armor, S.ARMOR_PICKUP, 'vest picked up');
 assert.equal(inbox.findLast((m) => m.t === 'snap').pk[0], 0, 'the vest is gone for a while');
 const foe = [...solo.rooms[0].players.values()].find((p) => p.bot);
 const duel = (x, z, w, d = [-1, 0, 0]) => {                    // hero stands at x,z and fires weapon w along d, claiming a hit
-  solo.message(hero, { t: 's', x, y: foe.pos[1], z, yaw: 0, pitch: 0 });
+  hero.pos = [x, foe.pos[1], z];
   hero.lastShot.fill(0);
   solo.message(hero, { t: 'shot', w, o: [x, foe.pos[1] + 1.6, z], d });
   solo.message(hero, { t: 'hit', id: foe.id });
@@ -160,6 +159,18 @@ assert.deepEqual([foe.armor, foe.hp], [0, 100 - (55 - 26)], 'a knife at 2 m cuts
 Object.assign(foe, { pos: [-4, 0, 0], hp: 100 });
 duel(4, 0, S.RIFLE);
 assert.equal(foe.hp, 100, 'the tank stops the bullet');
+
+// --- where a player says they are: a step is taken, a teleport or a place inside a wall is refused and corrected ---
+const claim = (x, z) => { solo.message(hero, { t: 's', x, y: 0, z, yaw: 0, pitch: 0 }); return hero.pos[0]; };
+Object.assign(hero, { pos: [10, 0, 16], reach: 3, movedAt: Date.now() });
+inbox.length = 0;
+assert.equal(claim(10.5, 16), 10.5, 'half a metre: fine');
+assert.equal(claim(30, 16), 10.5, '20 metres in no time: refused');
+assert.deepEqual(inbox.at(-1), { t: 'pos', p: [10.5, 0, 16] }, 'and the player is told where they really are');
+for (let i = 0; i < 50; i++) claim(10.5 + i * 0.001, 16);       // sending faster does not buy more distance
+assert.ok(claim(14, 16) < 11, 'no speed-up by flooding');
+Object.assign(hero, { pos: [3, 0, 0], reach: 3 });
+assert.equal(claim(1, 0), 3, 'inside the tank: refused');
 solo.leave(hero);
 assert.equal(solo.rooms.length, 0, 'room closes when the human leaves');
 
