@@ -1,0 +1,15 @@
+Alle Dateien in diesem Ordner sind frei nutzbar (Lizenz CC0), auch kommerziell und ohne Namensnennung.
+
+Texturen und Himmel: Poly Haven (https://polyhaven.com). Geladen am 2026-11-17 von dl.polyhaven.org.
+Texturen (je Farbe "_diff" und Relief "_nor_gl", 1024 x 1024):
+concrete_wall_008, cracked_concrete_wall, plastered_wall, weathered_brown_planks, sand_01
+Himmel: overcast_soil_puresky_1k.hdr
+Geprüft beim Laden: MD5-Prüfsumme gegen die Angabe von Poly Haven, Bildformat, Windows Defender (kein Fund).
+
+Figur: swat.glb
+Modell "SWAT" von Quaternius. Seite: https://poly.pizza/m/Btfn3G5Xv4
+Geladen am 2026-11-17 von static.poly.pizza. 5444 Dreiecke, 24 Animationen, keine Texturen.
+Geprüft beim Laden: GLB-Format (Anfang, Version, Länge), keine fremden Dateien oder Erweiterungen im Inhalt,
+Windows Defender (kein Fund). SHA256: A835107BAC833EB916C494E10997AE1709E85957EA6F6C59ACE3C9A66F6D1FEC
+Alle zehn Charaktere im Spiel benutzen diesen einen Körper. Farben, Ausrüstung und die Haltung
+mit beiden Händen am Gewehr kommen aus dem Code (public/game.js).
