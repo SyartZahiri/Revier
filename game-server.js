@@ -5,15 +5,16 @@
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
-import { createGame, weekKey, TICK_MS } from './public/sim.js';
+import { createGame, TICK_MS } from './public/sim.js';
+import { createBoard } from './board.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(ROOT, 'public');
 const ON_VERCEL = !!process.env.VERCEL;
-// On Vercel only the temp folder can be written, and it lives as long as the function instance does.
+// The file is only used without Redis. On Vercel only the temp folder can be written, and it does not last.
 const BOARD_FILE = process.env.LEADERBOARD_FILE ?? path.join(ON_VERCEL ? os.tmpdir() : path.join(ROOT, 'data'), 'leaderboard.json');
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css',
@@ -21,50 +22,22 @@ const MIME = {
 };
 
 // ---------- weekly leaderboard ----------
-// ponytail: one JSON file, names are not accounts (anyone can type any name). On Vercel the file is
-// lost whenever the function instance is replaced. Move to a database (with logins) once the ranking matters.
-const board = { week: weekKey(), kills: new Map() };   // a Map, so a name like "__proto__" is just a name
-try {
-  const saved = JSON.parse(await readFile(BOARD_FILE, 'utf8'));
-  if (saved?.week === board.week && saved.kills && typeof saved.kills === 'object') {
-    for (const [name, k] of Object.entries(saved.kills)) if (Number.isInteger(k) && k > 0) board.kills.set(name, k);
-  }
-} catch { /* no file yet, or unreadable: start an empty week */ }
-
-function currentBoard() {
-  const week = weekKey();
-  if (board.week !== week) { board.week = week; board.kills.clear(); }
-  return board;
-}
-let saveTimer = null;
-function countKill(name) {
-  const b = currentBoard();
-  if (!b.kills.has(name) && b.kills.size >= 5000) return;          // cap the file size
-  b.kills.set(name, (b.kills.get(name) ?? 0) + 1);
-  saveTimer ??= setTimeout(async () => {
-    saveTimer = null;
-    try {
-      await mkdir(path.dirname(BOARD_FILE), { recursive: true });
-      await writeFile(BOARD_FILE, JSON.stringify({ week: b.week, kills: Object.fromEntries(b.kills) }));
-    } catch (e) { console.error('Rangliste nicht gespeichert:', e.message); }
-  }, 2000);
-}
-function topList() {
-  const b = currentBoard();
-  const top = [...b.kills].sort((x, y) => y[1] - x[1]).slice(0, 10).map(([name, k]) => ({ name, k }));
-  return { week: b.week, top };
-}
-
+// Lasting for the week in Redis where one is set up (Vercel: Storage > Upstash Redis), in a file otherwise. See board.js.
+const board = createBoard({
+  file: BOARD_FILE,
+  redisUrl: process.env.KV_REST_API_URL ?? process.env.UPSTASH_REDIS_REST_URL,
+  redisToken: process.env.KV_REST_API_TOKEN ?? process.env.UPSTASH_REDIS_REST_TOKEN,
+});
+await board.ready;
 // ---------- plain requests ----------
 // /api/ws is one address for both: a WebSocket connects to the game, a normal GET returns the leaderboard.
-// (One address, so on Vercel both end up in the same function and see the same memory.)
 export const server = http.createServer(async (req, res) => {
   try {
     let p = decodeURIComponent(new URL(req.url, 'http://x').pathname);
     if (p === '/api/ws') {
       // Readable from any site, so a copy of the game hosted elsewhere can show this server's ranking.
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*' });
-      return res.end(JSON.stringify(topList()));
+      return res.end(JSON.stringify(await board.top()));
     }
     if (p.endsWith('/')) p += 'index.html';
     const file = path.join(PUBLIC, p);
@@ -83,7 +56,7 @@ export const server = http.createServer(async (req, res) => {
 // ---------- players ----------
 const game = createGame({
   send: (ws, msg) => { if (ws.readyState === 1) ws.send(JSON.stringify(msg)); },
-  onKill: countKill,
+  onKill: board.count,
 });
 export const rooms = game.rooms;
 

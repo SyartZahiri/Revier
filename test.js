@@ -2,6 +2,7 @@
 // that matter: names, characters, bots only while alone, rooms of 10, hits need a shot,
 // leaderboard, the solo mode without network, armour, and the physics.
 import assert from 'node:assert/strict';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { rm, readFile } from 'node:fs/promises';
@@ -152,7 +153,7 @@ const vercelCheck = `
   process.exit(0);`;
 const out = await new Promise((resolve, reject) => execFile(process.execPath, ['--input-type=module', '-e', vercelCheck],
   { env: { ...process.env, VERCEL: '1', LEADERBOARD_FILE: `${boardFile}.vercel` } }, (err, stdout) => (err ? reject(err) : resolve(stdout.trim()))));
-assert.equal(out, '200 week,top', 'the function serves the leaderboard');
+assert.equal(out, '200 week,store,top', 'the function serves the leaderboard');
 
 // --- solo mode: the same rules without any network (the fallback when no server answers) ---
 const map = S.MAPS[0];
@@ -251,6 +252,34 @@ S.simulate(wj, { ...idle, f: -1 }, 1 / 60, map);
 const fallSpeed = wj.vel[1];
 S.simulate(wj, { ...idle, f: -1, jump: true }, 1 / 60, map);
 assert.ok(wj.vel[1] < fallSpeed, 'no second jump off the same wall');
+
+// --- lasting leaderboard (Vercel): kills go to Redis over its REST API, a second server instance reads the same list ---
+const { createBoard } = await import('./board.js');
+const sets = new Map();                                        // a stand-in for Upstash Redis: key -> (name -> score)
+const fake = http.createServer(async (req, res) => {
+  let body = '';
+  for await (const chunk of req) body += chunk;
+  if (req.url !== '/pipeline' || req.headers.authorization !== 'Bearer geheim') return res.writeHead(401).end('{}');
+  const out = JSON.parse(body).map(([cmd, key, ...args]) => {
+    const set = sets.get(key) ?? sets.set(key, new Map()).get(key);
+    if (cmd === 'ZINCRBY') { set.set(args[1], (set.get(args[1]) ?? 0) + Number(args[0])); return { result: String(set.get(args[1])) }; }
+    if (cmd === 'ZREVRANGE') return { result: [...set].sort((x, y) => y[1] - x[1]).slice(0, 10).flatMap(([n, s]) => [n, String(s)]) };
+    return { result: 1 };                                      // EXPIRE, ZREMRANGEBYRANK
+  });
+  res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(out));
+});
+await new Promise((r) => fake.listen(0, r));
+const redisUrl = `http://localhost:${fake.address().port}`, quiet = () => {};
+const one = createBoard({ redisUrl, redisToken: 'geheim', log: quiet });
+for (const n of ['Ada', 'Ada', 'Bo', 'Ada']) one.count(n);
+await wait(200);
+const two = createBoard({ redisUrl, redisToken: 'geheim', log: quiet });          // a fresh instance with empty memory
+assert.deepEqual(await two.top(), { week: lb.week, store: 'redis', top: [{ name: 'Ada', k: 3 }, { name: 'Bo', k: 1 }] }, 'the list outlives the instance');
+assert.ok([...sets.keys()].every((k) => k === `revier:kills:${lb.week}`), 'one list per week, so a new week starts empty');
+const locked = createBoard({ redisUrl, redisToken: 'falsch', log: quiet });
+locked.count('Cy');
+assert.deepEqual(await locked.top(), { week: lb.week, store: 'memory', top: [{ name: 'Cy', k: 1 }] }, 'Redis says no: show what this instance knows');
+fake.close();
 
 // --- the leaderboard is written to disk a moment after a kill ---
 await wait(2300);

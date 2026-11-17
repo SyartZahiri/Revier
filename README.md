@@ -75,8 +75,22 @@ Was man über Vercel wissen muss:
   sofort neu und zeigt sein Kennzeichen vor. Der Spieler behält Platz, Position und Punkte.
 - **Kein fester Server.** Vercel garantiert nicht, dass zwei Spieler auf derselben Instanz landen.
   Bei wenig Betrieb klappt es in der Regel. Landen zwei Freunde in getrennten Räumen, hilft neu laden.
-- **Die Rangliste lebt im Speicher der Instanz.** Startet Vercel die Funktion neu, beginnt sie von vorn.
-  Für eine dauerhafte Rangliste braucht es eine Datenbank.
+- **Die Rangliste braucht einen Speicher.** Auf Vercel bleibt nichts auf der Festplatte. Ohne Speicher
+  beginnt die Rangliste von vorn, sobald Vercel die Funktion neu startet. Siehe nächster Abschnitt.
+
+### Rangliste dauerhaft machen (einmalig, kostenlos)
+
+Die Rangliste soll eine Woche lang halten und am Montag neu beginnen. Dafür legt man in Vercel
+einen kleinen Redis-Speicher an:
+
+1. Im Vercel-Projekt auf **Storage** gehen und **Create Database** wählen.
+2. **Upstash** (Redis) auswählen, den kostenlosen Tarif nehmen und mit dem Projekt verbinden.
+3. Das Projekt einmal neu veröffentlichen (**Deployments > Redeploy**), damit die Zugangsdaten ankommen.
+
+Mehr ist nicht nötig. Das Spiel erkennt die Zugangsdaten von selbst (`KV_REST_API_URL` und
+`KV_REST_API_TOKEN`, oder `UPSTASH_REDIS_REST_URL` und `UPSTASH_REDIS_REST_TOKEN`). Jede Woche bekommt
+eine eigene Liste, alte Listen löschen sich nach zwei Wochen selbst. Ob der Speicher benutzt wird,
+zeigt die Adresse `/api/ws`: Dort steht dann `"store":"redis"`.
 
 Antwortet der Server einmal nicht, fällt das Spiel von selbst in den Solo-Modus gegen einen Bot zurück.
 
@@ -91,6 +105,7 @@ wie Räume, Bots, Schaden und Runden funktionieren.
 | `public/shared.js` | Die Karte, Waffen, Bewegungsphysik, Strahl-Tests. Von Browser und Server benutzt |
 | `public/sim.js` | Spielregeln: Räume, Charaktere, Bots mit Wegfindung, Schaden, Westen, Runden. Ohne Netzwerk und ohne Dateizugriff |
 | `game-server.js` | Verbindet Spieler per WebSocket mit `sim.js`, führt die Rangliste, liefert lokal auch die Dateien aus |
+| `board.js` | Die Rangliste der Woche: in Redis, wenn eingerichtet, sonst in einer Datei |
 | `api/ws.js`, `vercel.json` | Machen aus `game-server.js` eine Funktion auf Vercel |
 | `public/game.js` | Alles im Browser: 3D mit three.js, Steuerung, Schiessen, Effekte, Anzeige, Menü |
 | `public/config.js` | Adresse des Mehrspieler-Servers |
