@@ -2,7 +2,6 @@
 // that matter: names, characters, bots only while alone, rooms of 10, hits need a shot,
 // leaderboard, the solo mode without network, armour, and the physics.
 import assert from 'node:assert/strict';
-import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { rm, readFile } from 'node:fs/promises';
@@ -253,39 +252,51 @@ const fallSpeed = wj.vel[1];
 S.simulate(wj, { ...idle, f: -1, jump: true }, 1 / 60, map);
 assert.ok(wj.vel[1] < fallSpeed, 'no second jump off the same wall');
 
-// --- lasting leaderboard (Vercel): kills go to Redis over its REST API, a second server instance reads the same list ---
+// --- lasting leaderboard (Vercel): the same JSON file, kept in Vercel Blob. Its stand-in here: one text in memory ---
 const { createBoard } = await import('./board.js');
-const sets = new Map();                                        // a stand-in for Upstash Redis: key -> (name -> score)
-let requests = 0;
-const fake = http.createServer(async (req, res) => {
-  let body = '';
-  for await (const chunk of req) body += chunk;
-  requests++;
-  if (req.url !== '/pipeline' || req.headers.authorization !== 'Bearer geheim') return res.writeHead(401).end('{}');
-  const out = JSON.parse(body).map(([cmd, key, ...args]) => {
-    const set = sets.get(key) ?? sets.set(key, new Map()).get(key);
-    if (cmd === 'ZINCRBY') { set.set(args[1], (set.get(args[1]) ?? 0) + Number(args[0])); return { result: String(set.get(args[1])) }; }
-    if (cmd === 'ZREVRANGE') return { result: [...set].sort((x, y) => y[1] - x[1]).slice(0, 10).flatMap(([n, s]) => [n, String(s)]) };
-    return { result: 1 };                                      // EXPIRE, ZREMRANGEBYRANK
-  });
-  res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(out));
-});
-await new Promise((r) => fake.listen(0, r));
-const redisUrl = `http://localhost:${fake.address().port}`, quiet = () => {};
-const one = createBoard({ redisUrl, redisToken: 'geheim', log: quiet });
+let stored = null, puts = 0, down = false;
+const blob = {
+  async get(name, o) {
+    if (down) throw new Error('Speicher weg');
+    assert.equal(o.useCache, false, 'always the newest file, not a cached one');
+    return stored === null ? null : { stream: new Response(stored).body };
+  },
+  async put(name, text, o) {
+    if (down) throw new Error('Speicher weg');
+    assert.ok(name === 'leaderboard.json' && o.allowOverwrite, 'one file, written over and over');
+    puts++; stored = text;
+  },
+};
+const fresh = (saveEvery = 50) => createBoard({ blob, saveEvery, log: () => {} });   // a server instance with empty memory
+const one = fresh();
 for (const n of ['Ada', 'Ada', 'Bo', 'Ada']) one.count(n);
-await wait(2300);
-assert.equal(requests, 1, 'four kills, one request: they are written together');
-const two = createBoard({ redisUrl, redisToken: 'geheim', log: quiet });          // a fresh instance with empty memory
-assert.deepEqual(await two.top(), { week: lb.week, store: 'redis', top: [{ name: 'Ada', k: 3 }, { name: 'Bo', k: 1 }] }, 'the list outlives the instance');
-assert.ok([...sets.keys()].every((k) => k === `revier:kills:${lb.week}`), 'one list per week, so a new week starts empty');
-const locked = createBoard({ redisUrl, redisToken: 'falsch', log: quiet });
-locked.count('Cy');
-assert.deepEqual(await locked.top(), { week: lb.week, store: 'memory', top: [{ name: 'Cy', k: 1 }] }, 'Redis says no: show what this instance knows');
-const asked = requests;
-await Promise.all([locked.top(), locked.top(), locked.top()]);
-assert.equal(requests, asked, 'a failed read is remembered for a moment too, not repeated on every request');
-fake.close();
+assert.deepEqual((await one.top()).top, [{ name: 'Ada', k: 3 }, { name: 'Bo', k: 1 }], 'kills show at once, before they are saved');
+await wait(150);
+assert.equal(puts, 1, 'four kills, one write: they are saved together');
+assert.deepEqual(JSON.parse(stored), { week: lb.week, updated: JSON.parse(stored).updated, kills: { Ada: 3, Bo: 1 } }, 'the file is plain JSON');
+const two = fresh();
+for (let i = 0; i < 3; i++) two.count('Bo');
+await wait(150);
+assert.deepEqual(await two.top(), { week: lb.week, store: 'blob', top: [{ name: 'Bo', k: 4 }, { name: 'Ada', k: 3 }] }, 'a second instance adds to the same file');
+stored = JSON.stringify({ week: '2000-W01', kills: { Alt: 99 } });
+const three = fresh();
+three.count('Cy');
+await wait(150);
+assert.deepEqual(JSON.parse(stored).kills, { Cy: 1 }, 'a new week starts with an empty file');
+down = true;
+three.count('Cy');
+await wait(150);
+assert.deepEqual(await three.top(), { week: lb.week, store: 'memory', top: [{ name: 'Cy', k: 2 }] }, 'storage down: show what this instance knows');
+assert.deepEqual(JSON.parse(stored).kills, { Cy: 1 }, 'and leave the file alone');
+down = false;
+await wait(200);
+assert.deepEqual(JSON.parse(stored).kills, { Cy: 2 }, 'the kill is saved once storage is back');
+const four = fresh(60000);                                     // as slow as on Vercel
+four.count('Di');
+await four.flush();
+assert.equal(JSON.parse(stored).kills.Di, 1, 'the last player leaving saves right away');
+four.count('Di');
+assert.equal(four.flush(), undefined, 'but not again a moment later: writes are limited');
 
 // --- the leaderboard is written to disk a moment after a kill ---
 await wait(2300);

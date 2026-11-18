@@ -80,17 +80,30 @@ Was man über Vercel wissen muss:
 
 ### Rangliste dauerhaft machen (einmalig, kostenlos)
 
-Die Rangliste soll eine Woche lang halten und am Montag neu beginnen. Dafür legt man in Vercel
-einen kleinen Redis-Speicher an:
+Die Rangliste ist eine einzige JSON-Datei, die sich selbst überschreibt. Keine Datenbank:
 
-1. Im Vercel-Projekt auf **Storage** gehen und **Create Database** wählen.
-2. **Upstash** (Redis) auswählen, den kostenlosen Tarif nehmen und mit dem Projekt verbinden.
-3. Das Projekt einmal neu veröffentlichen (**Deployments > Redeploy**), damit die Zugangsdaten ankommen.
+```json
+{ "week": "2026-W47", "updated": "2026-11-18T10:00:00.000Z", "kills": { "Ada": 12, "Bo": 3 } }
+```
 
-Mehr ist nicht nötig. Das Spiel erkennt die Zugangsdaten von selbst (`KV_REST_API_URL` und
-`KV_REST_API_TOKEN`, oder `UPSTASH_REDIS_REST_URL` und `UPSTASH_REDIS_REST_TOKEN`). Jede Woche bekommt
-eine eigene Liste, alte Listen löschen sich nach zwei Wochen selbst. Ob der Speicher benutzt wird,
-zeigt die Adresse `/api/ws`: Dort steht dann `"store":"redis"`.
+Sie hält eine Woche. Am Montag passt die Woche in der Datei nicht mehr, und sie wird leer neu geschrieben.
+Auf dem eigenen Rechner liegt sie unter `data/leaderboard.json`. Auf Vercel würde eine normale Datei bei jedem
+Neustart verschwinden, darum liegt sie dort in Vercels Dateispeicher (Blob):
+
+1. Im Vercel-Projekt auf **Storage** gehen, **Create Storage** und dann **Blob** wählen.
+2. **Private** wählen, einen Namen geben und das Häkchen bei
+   **Add a read-write token env var to this connection** setzen. Dann **Create**.
+3. Das Projekt einmal neu veröffentlichen (**Deployments > Redeploy**), damit der Zugang ankommt.
+
+Mehr ist nicht nötig. Das Spiel erkennt den Zugang von selbst (`BLOB_READ_WRITE_TOKEN`) und legt die Datei
+`leaderboard.json` beim ersten Kill an. Im Vercel-Projekt unter **Storage** kann man sie ansehen.
+Ob der Speicher benutzt wird, zeigt die Adresse `/api/ws`: Dort steht dann `"store":"blob"`.
+Steht dort `"store":"memory"`, erreicht das Spiel den Speicher nicht.
+
+Der kostenlose Tarif erlaubt 2000 Schreibvorgänge im Monat. Das Spiel sammelt Kills darum und schreibt auf
+Vercel höchstens alle zwei Minuten, und einmal wenn der letzte Spieler geht. Das reicht für rund 55 Stunden
+Spielzeit im Monat. Ist das Kontingent aufgebraucht, läuft das Spiel weiter, aber Vercel sperrt den Speicher
+für bis zu 30 Tage. Die Rangliste hält dann nur, solange die Instanz lebt.
 
 Antwortet der Server einmal nicht, fällt das Spiel von selbst in den Solo-Modus gegen einen Bot zurück.
 
@@ -105,7 +118,7 @@ wie Räume, Bots, Schaden und Runden funktionieren.
 | `public/shared.js` | Die Karte, Waffen, Bewegungsphysik, Strahl-Tests. Von Browser und Server benutzt |
 | `public/sim.js` | Spielregeln: Räume, Charaktere, Bots mit Wegfindung, Schaden, Westen, Runden. Ohne Netzwerk und ohne Dateizugriff |
 | `game-server.js` | Verbindet Spieler per WebSocket mit `sim.js`, führt die Rangliste, liefert lokal auch die Dateien aus |
-| `board.js` | Die Rangliste der Woche: in Redis, wenn eingerichtet, sonst in einer Datei |
+| `board.js` | Die Rangliste der Woche: eine JSON-Datei, lokal im Ordner `data`, auf Vercel im Dateispeicher (Blob) |
 | `api/ws.js`, `vercel.json` | Machen aus `game-server.js` eine Funktion auf Vercel |
 | `public/game.js` | Alles im Browser: 3D mit three.js, Steuerung, Schiessen, Effekte, Anzeige, Menü |
 | `public/config.js` | Adresse des Mehrspieler-Servers |

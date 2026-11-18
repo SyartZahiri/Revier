@@ -8,13 +8,14 @@ import path from 'node:path';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
+import * as blobStore from '@vercel/blob';
 import { createGame, TICK_MS } from './public/sim.js';
 import { createBoard } from './board.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(ROOT, 'public');
 const ON_VERCEL = !!process.env.VERCEL;
-// The file is only used without Redis. On Vercel only the temp folder can be written, and it does not last.
+// The local leaderboard file. On Vercel only the temp folder can be written and it does not last: there the file belongs in Blob.
 const BOARD_FILE = process.env.LEADERBOARD_FILE ?? path.join(ON_VERCEL ? os.tmpdir() : path.join(ROOT, 'data'), 'leaderboard.json');
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css',
@@ -22,12 +23,9 @@ const MIME = {
 };
 
 // ---------- weekly leaderboard ----------
-// Lasting for the week in Redis where one is set up (Vercel: Storage > Upstash Redis), in a file otherwise. See board.js.
-const board = createBoard({
-  file: BOARD_FILE,
-  redisUrl: process.env.KV_REST_API_URL ?? process.env.UPSTASH_REDIS_REST_URL,
-  redisToken: process.env.KV_REST_API_TOKEN ?? process.env.UPSTASH_REDIS_REST_TOKEN,
-});
+// One JSON file that rewrites itself. On Vercel it is kept in Blob once a store is connected (Storage > Blob), see board.js.
+const IN_BLOB = !!(process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_STORE_ID);
+const board = createBoard({ file: BOARD_FILE, blob: IN_BLOB ? blobStore : null });
 await board.ready;
 // ---------- plain requests ----------
 // /api/ws is one address for both: a WebSocket connects to the game, a normal GET returns the leaderboard.
@@ -69,7 +67,10 @@ wss.on('connection', (ws) => {
     if (p) return game.message(p, m);
     if (m?.t === 'join') p = game.join(ws, m.name, m.skin, m.token);     // first message: name, wished character, and the token when coming back
   });
-  ws.on('close', () => { if (p?.conn === ws) game.detach(p); });         // their place is kept for a moment
+  ws.on('close', () => {
+    if (p?.conn === ws) game.detach(p);                                  // their place is kept for a moment
+    if (!wss.clients.size) board.flush();                                // nobody left: save before Vercel puts the server to sleep
+  });
   ws.on('error', () => ws.close());
 });
 
