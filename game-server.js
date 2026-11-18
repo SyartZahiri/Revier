@@ -58,6 +58,9 @@ const game = createGame({
 });
 export const rooms = game.rooms;
 
+// Vercel may put the server to sleep the moment the last request ends. This asks it to wait for unfinished work.
+// The same call that waitUntil of @vercel/functions makes. Outside Vercel it does nothing.
+const stayUp = (work) => globalThis[Symbol.for('@vercel/request-context')]?.get?.()?.waitUntil?.(work);
 const wss = new WebSocketServer({ server, maxPayload: 1024 });
 wss.on('connection', (ws) => {
   let p = null;
@@ -69,7 +72,8 @@ wss.on('connection', (ws) => {
   });
   ws.on('close', () => {
     if (p?.conn === ws) game.detach(p);                                  // their place is kept for a moment
-    if (!wss.clients.size) board.flush();                                // nobody left: save before Vercel puts the server to sleep
+    const saving = !wss.clients.size && board.flush();                   // nobody left: save before the server goes quiet
+    if (saving) stayUp(saving);
   });
   ws.on('error', () => ws.close());
 });

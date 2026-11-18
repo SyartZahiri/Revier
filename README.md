@@ -101,7 +101,7 @@ Ob der Speicher benutzt wird, zeigt die Adresse `/api/ws`: Dort steht dann `"sto
 Steht dort `"store":"memory"`, erreicht das Spiel den Speicher nicht.
 
 Der kostenlose Tarif erlaubt 2000 Schreibvorgänge im Monat. Das Spiel sammelt Kills darum und schreibt auf
-Vercel höchstens alle zwei Minuten, und einmal wenn der letzte Spieler geht. Das reicht für rund 55 Stunden
+Vercel höchstens alle zwei Minuten. Das reicht für rund 65 Stunden
 Spielzeit im Monat. Ist das Kontingent aufgebraucht, läuft das Spiel weiter, aber Vercel sperrt den Speicher
 für bis zu 30 Tage. Die Rangliste hält dann nur, solange die Instanz lebt.
 

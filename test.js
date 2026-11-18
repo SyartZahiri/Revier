@@ -270,7 +270,7 @@ const blob = {
 const fresh = (saveEvery = 50) => createBoard({ blob, saveEvery, log: () => {} });   // a server instance with empty memory
 const one = fresh();
 for (const n of ['Ada', 'Ada', 'Bo', 'Ada']) one.count(n);
-assert.deepEqual((await one.top()).top, [{ name: 'Ada', k: 3 }, { name: 'Bo', k: 1 }], 'kills show at once, before they are saved');
+assert.deepEqual((await one.top()).top, [{ name: 'Ada', k: 3 }, { name: 'Bo', k: 1 }], 'kills show at once');
 await wait(150);
 assert.equal(puts, 1, 'four kills, one write: they are saved together');
 assert.deepEqual(JSON.parse(stored), { week: lb.week, updated: JSON.parse(stored).updated, kills: { Ada: 3, Bo: 1 } }, 'the file is plain JSON');

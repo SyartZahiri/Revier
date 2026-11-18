@@ -31,7 +31,7 @@ export function createBoard({ file, blob = null, saveEvery = blob ? 120000 : 200
   let week = weekKey();
   let saved = new Map();          // what the file holds for this week. A Map, so a name like "__proto__" is just a name
   const pending = new Map();      // kills that are not in the file yet
-  let ok = true, readAt = 0, wroteAt = 0;
+  let ok = true, readAt = 0, triedAt = 0;
   const monday = () => { if (week !== weekKey()) { week = weekKey(); saved = new Map(); pending.clear(); } };   // start over
   const add = (map, name, n) => { if (map.has(name) || map.size < MAX_NAMES) map.set(name, (map.get(name) ?? 0) + n); };
 
@@ -54,6 +54,7 @@ export function createBoard({ file, blob = null, saveEvery = blob ? 120000 : 200
 
   function save() {
     clearTimeout(timer); timer = null;
+    triedAt = Date.now();
     return saving ??= (async () => {
       await reading;
       const batch = [...pending];
@@ -64,7 +65,7 @@ export function createBoard({ file, blob = null, saveEvery = blob ? 120000 : 200
         for (const [name, n] of batch) add(next, name, n);
         const kills = Object.fromEntries([...next].sort((x, y) => y[1] - x[1]));
         await write(JSON.stringify({ week, updated: new Date().toISOString(), kills }, null, 1));
-        saved = next; ok = true; readAt = wroteAt = Date.now();
+        saved = next; ok = true; readAt = Date.now();
       } catch (e) {
         ok = false;
         log('Rangliste nicht gespeichert:', e.message);
@@ -81,12 +82,14 @@ export function createBoard({ file, blob = null, saveEvery = blob ? 120000 : 200
     timer ??= setTimeout(save, saveEvery);
   }
 
-  // Saves right now instead of at the next turn, for when the server is about to go quiet. Never more often than
-  // twice per saveEvery, so nobody can use up the monthly writes by joining and leaving.
-  const flush = () => (pending.size && Date.now() - wroteAt >= saveEvery / 2 ? save() : undefined);
+  // Saves right now instead of at the next turn, for the moments the server is surely awake or about to go quiet.
+  // Never sooner than saveEvery after the last try, so nobody can use up the monthly writes by joining and leaving.
+  const flush = () => (pending.size && Date.now() - triedAt >= saveEvery ? save() : undefined);
 
   async function top() {
-    if (blob && Date.now() - readAt > READ_EVERY) await refresh();
+    // Vercel puts the server to sleep between requests and timers sleep with it. Somebody asking for the list
+    // means it is awake right now: the moment to save what is waiting, or to look for what other instances wrote.
+    if (blob) await (flush() ?? (Date.now() - readAt > READ_EVERY ? refresh() : null));
     monday();
     const all = new Map(saved);
     for (const [name, n] of pending) add(all, name, n);
